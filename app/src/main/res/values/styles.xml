@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<resources>
+
+    <style name="Theme.CleanerGuru.Splash" parent="Theme.SplashScreen">
+
+        <item name="windowSplashScreenBackground">#B3C5D7</item>
+
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+
+        <item name="windowSplashScreenAnimationDuration">1000</item>
+
+        <item name="postSplashScreenTheme">@android:style/Theme.Material.NoActionBar</item>
+
+    </style>
+
+</resources>
