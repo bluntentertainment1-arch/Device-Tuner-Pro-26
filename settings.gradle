@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "cleaner-guru"
 include ':app'
-include ':dexatianalytics'
+
