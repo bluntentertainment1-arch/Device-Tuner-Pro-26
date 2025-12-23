@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import com.kidblunt.cleanerguru.ui.theme.*
 import com.kidblunt.cleanerguru.ui.components.TwinklingStarsBackground
 import com.kidblunt.cleanerguru.ui.components.HeartRateMonitor
+import com.kidblunt.cleanerguru.data.manager.GamingModeManager
+import com.kidblunt.cleanerguru.data.manager.BatterySaverManager
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -49,13 +51,37 @@ fun DashboardScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
     
+    // Initialize managers
+    val gamingModeManager = remember { GamingModeManager(context) }
+    val batterySaverManager = remember { BatterySaverManager(context) }
+    
+    // Collect states
+    val gamingModeState by gamingModeManager.gamingModeState.collectAsState()
+    val batterySaverState by batterySaverManager.batterySaverState.collectAsState()
+    
     var isRefreshing by remember { mutableStateOf(false) }
     var isOptimizing by remember { mutableStateOf(false) }
-    var isOptimized by remember { mutableStateOf(false) }
     var storageInfo by remember { mutableStateOf(getStorageInfo(context)) }
     var batteryLevel by remember { mutableStateOf(getBatteryLevel(context)) }
     var memoryInfo by remember { mutableStateOf(getMemoryInfo(context)) }
-    var deviceScore by remember { mutableStateOf(calculateDeviceScore(storageInfo.first, batteryLevel, memoryInfo.first, isOptimized)) }
+    var lastOptimizeTime by remember { mutableStateOf(0L) }
+    var canOptimize by remember { mutableStateOf(true) }
+    
+    // Track highest achieved score during app session
+    var highestAchievedScore by remember { mutableStateOf(0) }
+    var hasBeenQuickOptimized by remember { mutableStateOf(false) }
+    
+    // Calculate device score with new logic that prevents going backwards
+    var deviceScore by remember { 
+        mutableStateOf(calculateDeviceScore(
+            storageInfo.first, 
+            batteryLevel, 
+            memoryInfo.first,
+            isQuickOptimized = false,
+            isBatterySaverOn = batterySaverState.isEnabled,
+            isGamingModeOn = gamingModeState.isEnabled
+        )) 
+    }
 
     // Auto-refresh data every 30 seconds
     LaunchedEffect(Unit) {
@@ -65,14 +91,64 @@ fun DashboardScreen(
                 storageInfo = getStorageInfo(context)
                 batteryLevel = getBatteryLevel(context)
                 memoryInfo = getMemoryInfo(context)
-                deviceScore = calculateDeviceScore(storageInfo.first, batteryLevel, memoryInfo.first, isOptimized)
+                
+                val newScore = calculateDeviceScore(
+                    storageInfo.first, 
+                    batteryLevel, 
+                    memoryInfo.first,
+                    hasBeenQuickOptimized,
+                    batterySaverState.isEnabled,
+                    gamingModeState.isEnabled
+                )
+                
+                // Only update score if it's higher than the highest achieved score
+                if (newScore > highestAchievedScore) {
+                    deviceScore = newScore
+                    highestAchievedScore = newScore
+                } else {
+                    // Keep the highest achieved score
+                    deviceScore = highestAchievedScore
+                }
             }
+        }
+    }
+
+    // Update score when modes change, but don't let it go backwards
+    LaunchedEffect(batterySaverState.isEnabled, gamingModeState.isEnabled) {
+        if (!isOptimizing) {
+            val newScore = calculateDeviceScore(
+                storageInfo.first, 
+                batteryLevel, 
+                memoryInfo.first,
+                hasBeenQuickOptimized,
+                batterySaverState.isEnabled,
+                gamingModeState.isEnabled
+            )
+            
+            // Only update if new score is higher
+            if (newScore > highestAchievedScore) {
+                deviceScore = newScore
+                highestAchievedScore = newScore
+            } else {
+                // Keep the highest achieved score
+                deviceScore = highestAchievedScore
+            }
+        }
+    }
+
+    // Check cooldown timer
+    LaunchedEffect(lastOptimizeTime) {
+        if (lastOptimizeTime > 0) {
+            canOptimize = false
+            delay(30000) // 30 seconds cooldown
+            canOptimize = true
         }
     }
 
     // Handle quick optimization
     val performQuickOptimization: () -> Unit = {
-        if (!isOptimizing) {
+        if (!isOptimizing && canOptimize) {
+            lastOptimizeTime = System.currentTimeMillis()
             isOptimizing = true
         }
     }
@@ -80,10 +156,19 @@ fun DashboardScreen(
     // Handle optimization completion
     LaunchedEffect(isOptimizing) {
         if (isOptimizing) {
-            delay(2000) // Simulate optimization process
+            // First, animate score to 100
+            deviceScore = 100
+            highestAchievedScore = 100
+            delay(2000) // Show 100 for 2 seconds
             
-            // Simulate improved device health after optimization
-            isOptimized = true
+            // Enable CPU boost during optimization
+            gamingModeManager.toggleCpuBoost(true)
+            
+            // Enable power saver (not ultra saver) during optimization
+            batterySaverManager.enableBatterySaver()
+            
+            // Mark as optimized
+            hasBeenQuickOptimized = true
             
             // Simulate improved metrics
             val optimizedStorageInfo = Pair(
@@ -97,9 +182,38 @@ fun DashboardScreen(
             
             storageInfo = optimizedStorageInfo
             memoryInfo = optimizedMemoryInfo
-            deviceScore = calculateDeviceScore(storageInfo.first, batteryLevel, memoryInfo.first, isOptimized)
             
             isOptimizing = false
+            
+            // Calculate final optimized score
+            val finalScore = calculateDeviceScore(
+                storageInfo.first, 
+                batteryLevel, 
+                memoryInfo.first,
+                hasBeenQuickOptimized,
+                batterySaverState.isEnabled,
+                gamingModeState.isEnabled
+            )
+            
+            // Slowly bring score down to final optimized score, but ensure it's still high
+            val startScore = 100
+            val endScore = maxOf(finalScore, 91) // Ensure minimum score of 91 after optimization
+            val animationDuration = 5000L // 5 seconds
+            val steps = 50
+            val stepDelay = animationDuration / steps
+            val scoreDecrement = (startScore - endScore).toFloat() / steps
+            
+            repeat(steps) { step ->
+                delay(stepDelay)
+                val newScore = (startScore - (scoreDecrement * (step + 1))).roundToInt().coerceAtLeast(endScore)
+                deviceScore = newScore
+                highestAchievedScore = newScore
+            }
+            
+            deviceScore = endScore
+            highestAchievedScore = endScore
+            
+            // Auto-navigate to gaming mode after optimization
             onNavigateToGamingMode()
         }
     }
@@ -134,12 +248,28 @@ fun DashboardScreen(
                         IconButton(
                             onClick = {
                                 isRefreshing = true
-                                if (!isOptimized) {
-                                    storageInfo = getStorageInfo(context)
-                                    batteryLevel = getBatteryLevel(context)
-                                    memoryInfo = getMemoryInfo(context)
+                                storageInfo = getStorageInfo(context)
+                                batteryLevel = getBatteryLevel(context)
+                                memoryInfo = getMemoryInfo(context)
+                                
+                                val newScore = calculateDeviceScore(
+                                    storageInfo.first, 
+                                    batteryLevel, 
+                                    memoryInfo.first,
+                                    hasBeenQuickOptimized,
+                                    batterySaverState.isEnabled,
+                                    gamingModeState.isEnabled
+                                )
+                                
+                                // Only update if new score is higher
+                                if (newScore > highestAchievedScore) {
+                                    deviceScore = newScore
+                                    highestAchievedScore = newScore
+                                } else {
+                                    // Keep the highest achieved score
+                                    deviceScore = highestAchievedScore
                                 }
-                                deviceScore = calculateDeviceScore(storageInfo.first, batteryLevel, memoryInfo.first, isOptimized)
+                                
                                 isRefreshing = false
                             }
                         ) {
@@ -182,18 +312,21 @@ fun DashboardScreen(
                     .verticalScroll(scrollState)
                     .padding(16.dp)
             ) {
-                // Device Score Card with vibrant animation
+                // Device Score Card with new scoring logic
                 AnimatedDeviceScoreCard(
                     score = deviceScore,
                     isOptimizing = isOptimizing,
-                    isOptimized = isOptimized,
+                    hasBeenOptimized = hasBeenQuickOptimized,
+                    isBatterySaverOn = batterySaverState.isEnabled,
+                    isGamingModeOn = gamingModeState.isEnabled,
                     modifier = Modifier.padding(bottom = 24.dp)
                 )
 
-                // Quick optimization button with rocket animation - MOVED ABOVE DEVICE HEALTH
+                // Quick optimization button
                 AnimatedRocketOptimizeCard(
                     isOptimizing = isOptimizing,
-                    isOptimized = isOptimized,
+                    isOptimized = hasBeenQuickOptimized,
+                    canOptimize = canOptimize,
                     onClick = performQuickOptimization,
                     modifier = Modifier.padding(bottom = 24.dp)
                 )
@@ -227,7 +360,7 @@ fun DashboardScreen(
                         color = getStorageColor(storageInfo.first),
                         modifier = Modifier.weight(1f),
                         progress = storageInfo.first / 100f,
-                        isOptimized = isOptimized
+                        isOptimized = hasBeenQuickOptimized
                     )
 
                     AnimatedMetricCard(
@@ -256,18 +389,18 @@ fun DashboardScreen(
                         color = getMemoryColor(memoryInfo.first),
                         modifier = Modifier.weight(1f),
                         progress = memoryInfo.first / 100f,
-                        isOptimized = isOptimized
+                        isOptimized = hasBeenQuickOptimized
                     )
 
                     AnimatedMetricCard(
                         title = "CPU",
-                        value = if (isOptimized) "Excellent" else "Normal",
-                        subtitle = if (isOptimized) "Boosted" else "Optimized",
+                        value = if (hasBeenQuickOptimized) "Excellent" else "Normal",
+                        subtitle = if (hasBeenQuickOptimized) "Boosted" else "Optimized",
                         icon = Icons.Default.Speed,
-                        color = if (isOptimized) NeonGreen else ElectricBlue,
+                        color = if (hasBeenQuickOptimized) NeonGreen else ElectricBlue,
                         modifier = Modifier.weight(1f),
-                        progress = if (isOptimized) 0.9f else 0.6f,
-                        isOptimized = isOptimized
+                        progress = if (hasBeenQuickOptimized) 0.9f else 0.6f,
+                        isOptimized = hasBeenQuickOptimized
                     )
                 }
 
@@ -298,7 +431,7 @@ fun DashboardScreen(
                     icon = Icons.Default.BatteryChargingFull,
                     color = ElectricBlue,
                     onClick = onNavigateToBatterySaver,
-                    badge = if (batteryLevel < 30) "Recommended" else null
+                    badge = if (batteryLevel < 30) "Recommended" else if (batterySaverState.isEnabled) "Active" else null
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -306,9 +439,10 @@ fun DashboardScreen(
                 EnhancedActionCard(
                     title = "Gaming Mode",
                     description = "Boost performance for gaming",
-                    icon = Icons.Default.Gamepad,
+                    icon = Icons.Default.SportsEsports,
                     color = VibrantPurple,
-                    onClick = onNavigateToGamingMode
+                    onClick = onNavigateToGamingMode,
+                    badge = if (gamingModeState.isEnabled) "Active" else null
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -321,10 +455,167 @@ fun DashboardScreen(
 }
 
 @Composable
+fun AnimatedRocketOptimizeCard(
+    isOptimizing: Boolean,
+    isOptimized: Boolean,
+    canOptimize: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isOptimizing -> SunsetOrange
+            isOptimized -> NeonGreen
+            !canOptimize -> Color.Gray
+            else -> NeonGreen
+        },
+        animationSpec = tween(500)
+    )
+
+    val scale by animateFloatAsState(
+        targetValue = if (isOptimizing) 0.95f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+    )
+
+    // Rocket animation states
+    val rocketOffset by animateFloatAsState(
+        targetValue = if (isOptimizing) -50f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        )
+    )
+
+    val rocketRotation by animateFloatAsState(
+        targetValue = if (isOptimizing) -15f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+    )
+
+    val infiniteTransition = rememberInfiniteTransition()
+    val rocketShake by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isOptimizing) 3f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(100),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clickable(enabled = canOptimize && !isOptimizing && !isOptimized) { onClick() },
+        shape = MaterialTheme.shapes.medium,
+        elevation = 8.dp,
+        backgroundColor = backgroundColor
+    ) {
+        Box {
+            // Gradient overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                backgroundColor,
+                                backgroundColor.copy(alpha = 0.8f)
+                            )
+                        )
+                    )
+            )
+            
+            Row(
+                modifier = Modifier.padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = rocketOffset.dp, y = rocketShake.dp)
+                ) {
+                    when {
+                        isOptimizing -> {
+                            Icon(
+                                imageVector = Icons.Default.RocketLaunch,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .rotate(rocketRotation)
+                            )
+                        }
+                        isOptimized -> {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        !canOptimize -> {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.RocketLaunch,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            isOptimizing -> "Launching Optimization..."
+                            isOptimized -> "Optimization Complete"
+                            !canOptimize -> "Quick Optimize (Cooldown)"
+                            else -> "Quick Optimize"
+                        },
+                        style = MaterialTheme.typography.h3,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = when {
+                            isOptimizing -> "Rocket boosting device performance & CPU"
+                            isOptimized -> "Power saver enabled, CPU boosted & performance enhanced"
+                            !canOptimize -> "Please wait 30 seconds before next use"
+                            else -> "Optimize phone speed, enable power saver & CPU boost (+25%)"
+                        },
+                        style = MaterialTheme.typography.body2,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                }
+                
+                if (canOptimize && !isOptimizing && !isOptimized) {
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun AnimatedDeviceScoreCard(
     score: Int,
     isOptimizing: Boolean,
-    isOptimized: Boolean,
+    hasBeenOptimized: Boolean = false,
+    isBatterySaverOn: Boolean = false,
+    isGamingModeOn: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val animatedScore by animateIntAsState(
@@ -383,7 +674,7 @@ fun AnimatedDeviceScoreCard(
                     Text(
                         text = when {
                             isOptimizing -> "Optimizing Device..."
-                            isOptimized -> "Device Optimized"
+                            hasBeenOptimized -> "Device Score (Optimized)"
                             else -> "Device Score"
                         },
                         style = MaterialTheme.typography.h3,
@@ -391,13 +682,31 @@ fun AnimatedDeviceScoreCard(
                         color = Color.White
                     )
                     
-                    if (isOptimized) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Optimized",
-                            tint = NeonGreen,
-                            modifier = Modifier.size(24.dp)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (hasBeenOptimized) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Quick Optimized",
+                                tint = NeonGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        if (isBatterySaverOn) {
+                            Icon(
+                                imageVector = Icons.Default.BatteryChargingFull,
+                                contentDescription = "Battery Saver Active",
+                                tint = ElectricBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        if (isGamingModeOn) {
+                            Icon(
+                                imageVector = Icons.Default.SportsEsports,
+                                contentDescription = "Gaming Mode Active",
+                                tint = VibrantPurple,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
                 
@@ -444,153 +753,25 @@ fun AnimatedDeviceScoreCard(
                 Text(
                     text = when {
                         isOptimizing -> "Please wait..."
-                        isOptimized -> "Performance enhanced!"
+                        hasBeenOptimized -> "Performance enhanced with quick optimize!"
                         else -> getScoreDescription(score)
                     },
                     style = MaterialTheme.typography.body1,
                     color = Color.White.copy(alpha = 0.8f)
                 )
-            }
-        }
-    }
-}
 
-@Composable
-fun AnimatedRocketOptimizeCard(
-    isOptimizing: Boolean,
-    isOptimized: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            isOptimizing -> SunsetOrange
-            isOptimized -> NeonGreen
-            else -> NeonGreen
-        },
-        animationSpec = tween(500)
-    )
-
-    val scale by animateFloatAsState(
-        targetValue = if (isOptimizing) 0.95f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-    )
-
-    // Rocket animation states
-    val rocketOffset by animateFloatAsState(
-        targetValue = if (isOptimizing) -50f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        )
-    )
-
-    val rocketRotation by animateFloatAsState(
-        targetValue = if (isOptimizing) -15f else 0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
-    )
-
-    val infiniteTransition = rememberInfiniteTransition()
-    val rocketShake by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isOptimizing) 3f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(100),
-            repeatMode = RepeatMode.Reverse
-        )
-    )
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .scale(scale)
-            .clickable(enabled = !isOptimizing && !isOptimized) { onClick() },
-        shape = MaterialTheme.shapes.medium,
-        elevation = 8.dp,
-        backgroundColor = backgroundColor
-    ) {
-        Box {
-            // Gradient overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                backgroundColor,
-                                backgroundColor.copy(alpha = 0.8f)
-                            )
-                        )
-                    )
-            )
-            
-            Row(
-                modifier = Modifier.padding(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .offset(x = rocketOffset.dp, y = rocketShake.dp)
-                ) {
-                    when {
-                        isOptimizing -> {
-                            Icon(
-                                imageVector = Icons.Default.Rocket,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .rotate(rocketRotation)
-                            )
-                        }
-                        isOptimized -> {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.Rocket,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
-                    }
-                }
-                
-                Spacer(modifier = Modifier.width(16.dp))
-                
-                Column(modifier = Modifier.weight(1f)) {
+                // Show active modes
+                if (isBatterySaverOn || isGamingModeOn) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val activeModes = mutableListOf<String>()
+                    if (isBatterySaverOn) activeModes.add("Battery Saver (+20%)")
+                    if (isGamingModeOn) activeModes.add("Gaming Mode (+30%)")
+                    
                     Text(
-                        text = when {
-                            isOptimizing -> "Launching Optimization..."
-                            isOptimized -> "Optimization Complete"
-                            else -> "Quick Optimize"
-                        },
-                        style = MaterialTheme.typography.h3,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = when {
-                            isOptimizing -> "Rocket boosting device performance"
-                            isOptimized -> "Device health signals improved"
-                            else -> "Auto-enable gaming mode & CPU boost"
-                        },
-                        style = MaterialTheme.typography.body2,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
-                }
-                
-                if (!isOptimizing && !isOptimized) {
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = Color.White
+                        text = "Active: ${activeModes.joinToString(", ")}",
+                        style = MaterialTheme.typography.caption,
+                        color = SuccessGreen,
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -786,7 +967,11 @@ fun EnhancedActionCard(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
-                    backgroundColor = ErrorRed,
+                    backgroundColor = when (it) {
+                        "Active" -> SuccessGreen
+                        "Recommended" -> WarningOrange
+                        else -> ErrorRed
+                    },
                     shape = MaterialTheme.shapes.small
                 ) {
                     Text(
@@ -847,18 +1032,46 @@ fun SystemInfoCard(context: Context) {
     }
 }
 
-private fun calculateDeviceScore(storageUsage: Int, batteryLevel: Int, memoryUsage: Int, isOptimized: Boolean): Int {
-    val storageScore = (100 - storageUsage) * 0.4
-    val batteryScore = batteryLevel * 0.3
-    val memoryScore = (100 - memoryUsage) * 0.3
+private fun calculateDeviceScore(
+    storageUsage: Int, 
+    batteryLevel: Int, 
+    memoryUsage: Int, 
+    isQuickOptimized: Boolean,
+    isBatterySaverOn: Boolean,
+    isGamingModeOn: Boolean
+): Int {
+    // Base score calculation (max 50)
+    val storageScore = (100 - storageUsage) * 0.2  // 20% weight
+    val batteryScore = batteryLevel * 0.15          // 15% weight  
+    val memoryScore = (100 - memoryUsage) * 0.15   // 15% weight
     val baseScore = (storageScore + batteryScore + memoryScore).roundToInt()
     
-    // Add optimization bonus
-    return if (isOptimized) {
-        minOf(baseScore + 20, 95) // Add 20 points bonus, cap at 95
-    } else {
-        baseScore
+    var finalScore = baseScore
+    
+    // Quick optimize bonus: +25%
+    if (isQuickOptimized) {
+        finalScore = (finalScore * 1.25).roundToInt()
     }
+    
+    // Battery saver bonus: +20%
+    if (isBatterySaverOn) {
+        finalScore = (finalScore * 1.20).roundToInt()
+    }
+    
+    // Gaming mode bonus: +30%
+    if (isGamingModeOn) {
+        finalScore = (finalScore * 1.30).roundToInt()
+    }
+    
+    // Ensure score is between 91-99 when all modes are active
+    if (isQuickOptimized && isBatterySaverOn && isGamingModeOn) {
+        finalScore = finalScore.coerceIn(91, 99)
+    } else {
+        // Cap at 99 maximum
+        finalScore = finalScore.coerceAtMost(99)
+    }
+    
+    return finalScore
 }
 
 private fun getScoreDescription(score: Int): String {

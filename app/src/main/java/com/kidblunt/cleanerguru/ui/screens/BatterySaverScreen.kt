@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kidblunt.cleanerguru.ui.theme.*
+import com.kidblunt.cleanerguru.data.manager.BatterySaverManager
 import kotlinx.coroutines.delay
 
 @Composable
@@ -37,29 +38,47 @@ fun BatterySaverScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
-
-    var batteryOptimizationEnabled by remember { mutableStateOf(false) }
-    var backgroundRestrictionEnabled by remember { mutableStateOf(false) }
-    var brightnessLevel by remember { mutableStateOf(50f) }
-    var autoSyncEnabled by remember { mutableStateOf(true) }
-    var locationServicesEnabled by remember { mutableStateOf(true) }
-    var vibrationEnabled by remember { mutableStateOf(true) }
+    
+    // Initialize BatterySaverManager
+    val batterySaverManager = remember { BatterySaverManager(context) }
+    val batterySaverState by batterySaverManager.batterySaverState.collectAsState()
 
     val batteryLevel = remember { getBatteryLevel(context) }
     val batteryStatus = remember { getBatteryStatus(context) }
     val isCharging = remember { isCharging(context) }
     
     var estimatedTime by remember { mutableStateOf("") }
-    
+    var remainingTime by remember { mutableStateOf("") }
+
+    // Check for timeout and update remaining time every second
+    LaunchedEffect(Unit) {
+        while (true) {
+            batterySaverManager.checkBatterySaverTimeout()
+            remainingTime = batterySaverManager.formatRemainingTime()
+            delay(1000)
+        }
+    }
+
     // Calculate estimated battery time
-    LaunchedEffect(batteryLevel, batteryOptimizationEnabled) {
-        estimatedTime = calculateBatteryTime(batteryLevel, batteryOptimizationEnabled)
+    LaunchedEffect(batteryLevel, batterySaverState.isEnabled) {
+        estimatedTime = calculateBatteryTime(batteryLevel, batterySaverState.isEnabled)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Battery Saver") },
+                title = { 
+                    Column {
+                        Text("Battery Saver")
+                        if (batterySaverState.isEnabled) {
+                            Text(
+                                text = remainingTime,
+                                style = MaterialTheme.typography.caption,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                },
                 backgroundColor = CloudBlue,
                 contentColor = Color.White,
                 navigationIcon = {
@@ -70,16 +89,15 @@ fun BatterySaverScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            // Quick battery optimization
-                            batteryOptimizationEnabled = true
-                            backgroundRestrictionEnabled = true
-                            brightnessLevel = 30f
-                            autoSyncEnabled = false
-                            locationServicesEnabled = false
-                            vibrationEnabled = false
+                            // Quick battery optimization - only enables power saver
+                            batterySaverManager.enableBatterySaver()
                         }
                     ) {
-                        Icon(Icons.Default.FlashOn, contentDescription = "Quick Optimize")
+                        Icon(
+                            imageVector = Icons.Default.FlashOn, 
+                            contentDescription = "Quick Optimize",
+                            tint = if (batterySaverState.isEnabled) SuccessGreen else Color.White
+                        )
                     }
                 }
             )
@@ -96,7 +114,10 @@ fun BatterySaverScreen(
                 batteryLevel = batteryLevel,
                 batteryStatus = batteryStatus,
                 isCharging = isCharging,
-                estimatedTime = estimatedTime
+                estimatedTime = estimatedTime,
+                isOptimized = batterySaverState.isEnabled,
+                remainingTime = remainingTime,
+                isUltraSaver = batterySaverState.isUltraSaverMode
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -117,24 +138,27 @@ fun BatterySaverScreen(
                     title = "Power Saver",
                     icon = Icons.Default.BatteryAlert,
                     color = WarningOrange,
-                    isActive = batteryOptimizationEnabled,
-                    onClick = { batteryOptimizationEnabled = !batteryOptimizationEnabled },
+                    isActive = batterySaverState.isEnabled && !batterySaverState.isUltraSaverMode,
+                    onClick = { 
+                        if (batterySaverState.isEnabled && !batterySaverState.isUltraSaverMode) {
+                            batterySaverManager.disableBatterySaver()
+                        } else {
+                            batterySaverManager.enableBatterySaver()
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 
                 QuickActionCard(
                     title = "Ultra Saver",
-                    icon = Icons.Default.BatterySaver,
+                    icon = Icons.Default.PowerSettingsNew,
                     color = ErrorRed,
-                    isActive = batteryOptimizationEnabled && backgroundRestrictionEnabled,
+                    isActive = batterySaverState.isEnabled && batterySaverState.isUltraSaverMode,
                     onClick = {
-                        if (batteryOptimizationEnabled && backgroundRestrictionEnabled) {
-                            batteryOptimizationEnabled = false
-                            backgroundRestrictionEnabled = false
+                        if (batterySaverState.isEnabled && batterySaverState.isUltraSaverMode) {
+                            batterySaverManager.disableBatterySaver()
                         } else {
-                            batteryOptimizationEnabled = true
-                            backgroundRestrictionEnabled = true
-                            brightnessLevel = 20f
+                            batterySaverManager.enableUltraSaver()
                         }
                     },
                     modifier = Modifier.weight(1f)
@@ -152,10 +176,16 @@ fun BatterySaverScreen(
 
             EnhancedSettingCard(
                 title = "Battery Optimization",
-                description = "Enable comprehensive battery saving mode",
+                description = "Enable power saver mode (3 hours)",
                 icon = Icons.Default.BatteryChargingFull,
-                isEnabled = batteryOptimizationEnabled,
-                onToggle = { batteryOptimizationEnabled = it },
+                isEnabled = batterySaverState.isEnabled && !batterySaverState.isUltraSaverMode,
+                onToggle = { 
+                    if (it) {
+                        batterySaverManager.enableBatterySaver()
+                    } else {
+                        batterySaverManager.disableBatterySaver()
+                    }
+                },
                 impact = "High Impact"
             )
 
@@ -165,8 +195,10 @@ fun BatterySaverScreen(
                 title = "Background App Restriction",
                 description = "Limit background app processes to conserve battery",
                 icon = Icons.Default.Block,
-                isEnabled = backgroundRestrictionEnabled,
-                onToggle = { backgroundRestrictionEnabled = it },
+                isEnabled = batterySaverState.backgroundRestrictionEnabled,
+                onToggle = { 
+                    batterySaverManager.toggleSetting("background_restriction", it)
+                },
                 impact = "Medium Impact"
             )
 
@@ -176,20 +208,11 @@ fun BatterySaverScreen(
                 title = "Auto-Sync",
                 description = "Disable automatic data synchronization",
                 icon = Icons.Default.Sync,
-                isEnabled = autoSyncEnabled,
-                onToggle = { autoSyncEnabled = it },
+                isEnabled = batterySaverState.autoSyncEnabled,
+                onToggle = { 
+                    batterySaverManager.toggleSetting("auto_sync", it)
+                },
                 impact = "Medium Impact"
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            EnhancedSettingCard(
-                title = "Location Services",
-                description = "Turn off GPS and location tracking",
-                icon = Icons.Default.LocationOff,
-                isEnabled = locationServicesEnabled,
-                onToggle = { locationServicesEnabled = it },
-                impact = "High Impact"
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -198,23 +221,11 @@ fun BatterySaverScreen(
                 title = "Vibration",
                 description = "Disable haptic feedback and vibrations",
                 icon = Icons.Default.Vibration,
-                isEnabled = vibrationEnabled,
-                onToggle = { vibrationEnabled = it },
+                isEnabled = batterySaverState.vibrationEnabled,
+                onToggle = { 
+                    batterySaverManager.toggleSetting("vibration", it)
+                },
                 impact = "Low Impact"
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Screen Brightness",
-                style = MaterialTheme.typography.h3,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            EnhancedBrightnessControlCard(
-                brightnessLevel = brightnessLevel,
-                onBrightnessChange = { brightnessLevel = it }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -225,14 +236,6 @@ fun BatterySaverScreen(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-
-            BatteryTipCard(
-                tip = "Reduce screen brightness to save battery",
-                icon = Icons.Default.Lightbulb,
-                savings = "Up to 15% battery savings"
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             BatteryTipCard(
                 tip = "Close unused apps running in background",
@@ -255,6 +258,14 @@ fun BatterySaverScreen(
                 icon = Icons.Default.DarkMode,
                 savings = "Up to 10% battery savings"
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            BatteryTipCard(
+                tip = "Turn off unnecessary notifications",
+                icon = Icons.Default.NotificationsOff,
+                savings = "Up to 5% battery savings"
+            )
         }
     }
 }
@@ -264,7 +275,10 @@ fun EnhancedBatteryStatusCard(
     batteryLevel: Int,
     batteryStatus: String,
     isCharging: Boolean,
-    estimatedTime: String
+    estimatedTime: String,
+    isOptimized: Boolean = false,
+    remainingTime: String = "",
+    isUltraSaver: Boolean = false
 ) {
     val batteryColor = when {
         batteryLevel < 20 -> ErrorRed
@@ -281,7 +295,10 @@ fun EnhancedBatteryStatusCard(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         elevation = 6.dp,
-        backgroundColor = batteryColor.copy(alpha = 0.1f)
+        backgroundColor = if (isOptimized) 
+            batteryColor.copy(alpha = 0.2f) 
+        else 
+            batteryColor.copy(alpha = 0.1f)
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -294,7 +311,11 @@ fun EnhancedBatteryStatusCard(
             ) {
                 Column {
                     Text(
-                        text = "Battery Level",
+                        text = when {
+                            isOptimized && isUltraSaver -> "Ultra Saver Active"
+                            isOptimized -> "Power Saver Active"
+                            else -> "Battery Level"
+                        },
                         style = MaterialTheme.typography.caption,
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
                     )
@@ -304,6 +325,14 @@ fun EnhancedBatteryStatusCard(
                         fontWeight = FontWeight.Bold,
                         color = batteryColor
                     )
+                    if (isOptimized && remainingTime.isNotEmpty()) {
+                        Text(
+                            text = remainingTime,
+                            style = MaterialTheme.typography.caption,
+                            color = SuccessGreen,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
 
                 Box(
@@ -322,6 +351,17 @@ fun EnhancedBatteryStatusCard(
                         modifier = Modifier.size(40.dp),
                         tint = batteryColor
                     )
+                    
+                    if (isOptimized) {
+                        Icon(
+                            imageVector = if (isUltraSaver) Icons.Default.PowerSettingsNew else Icons.Default.CheckCircle,
+                            contentDescription = "Optimized",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .offset(x = 25.dp, y = (-25).dp),
+                            tint = if (isUltraSaver) ErrorRed else SuccessGreen
+                        )
+                    }
                 }
             }
 
@@ -338,7 +378,12 @@ fun EnhancedBatteryStatusCard(
                         color = MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
                     )
                     Text(
-                        text = if (isCharging) "Charging" else batteryStatus,
+                        text = when {
+                            isCharging -> "Charging"
+                            isOptimized && isUltraSaver -> "Ultra Optimized"
+                            isOptimized -> "Power Optimized"
+                            else -> batteryStatus
+                        },
                         style = MaterialTheme.typography.body1,
                         fontWeight = FontWeight.Medium
                     )
@@ -494,90 +539,6 @@ fun EnhancedSettingCard(
                     checkedTrackColor = SuccessGreen.copy(alpha = 0.5f)
                 )
             )
-        }
-    }
-}
-
-@Composable
-fun EnhancedBrightnessControlCard(
-    brightnessLevel: Float,
-    onBrightnessChange: (Float) -> Unit
-) {
-    val savings = ((100 - brightnessLevel) * 0.15).toInt()
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        elevation = 4.dp
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.BrightnessLow,
-                        contentDescription = null,
-                        tint = CloudBlue
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Brightness",
-                        style = MaterialTheme.typography.body1,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "${brightnessLevel.toInt()}%",
-                        style = MaterialTheme.typography.body1,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (savings > 0) {
-                        Text(
-                            text = "Save ${savings}%",
-                            style = MaterialTheme.typography.caption,
-                            color = SuccessGreen,
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.BrightnessLow,
-                    contentDescription = null,
-                    tint = CloudBlue.copy(alpha = 0.6f),
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Slider(
-                    value = brightnessLevel,
-                    onValueChange = onBrightnessChange,
-                    valueRange = 10f..100f,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(
-                        thumbColor = CloudBlue,
-                        activeTrackColor = CloudBlue
-                    )
-                )
-
-                Icon(
-                    imageVector = Icons.Default.BrightnessHigh,
-                    contentDescription = null,
-                    tint = CloudBlue,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
         }
     }
 }

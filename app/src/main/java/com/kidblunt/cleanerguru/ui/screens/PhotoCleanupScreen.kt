@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
 
 private const val TAG = "PhotoCleanupScreen"
 
@@ -91,6 +92,7 @@ fun PhotoCleanupScreen(
     var currentFilter by remember { mutableStateOf(PhotoCategory.OTHER) }
     var photoAnalysis by remember { mutableStateOf<PhotoAnalysis?>(null) }
     var showAnalysis by remember { mutableStateOf(false) }
+    var deleteResult by remember { mutableStateOf<String?>(null) }
 
     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_IMAGES
@@ -335,10 +337,11 @@ fun PhotoCleanupScreen(
                         showDeleteDialog = false
                         scope.launch {
                             isDeleting = true
-                            deletePhotos(context.contentResolver, selectedPhotos.toList())
+                            val result = deletePhotos(context.contentResolver, selectedPhotos.toList())
                             photos = photos.filterNot { selectedPhotos.contains(it.uri) }
                             selectedPhotos = emptySet()
                             photoAnalysis = analyzePhotos(photos)
+                            deleteResult = result
                             isDeleting = false
                         }
                     }
@@ -352,6 +355,14 @@ fun PhotoCleanupScreen(
                 }
             }
         )
+    }
+
+    // Show delete result snackbar
+    deleteResult?.let { result ->
+        LaunchedEffect(result) {
+            // You can show a snackbar or toast here
+            deleteResult = null
+        }
     }
 }
 
@@ -810,10 +821,36 @@ private suspend fun analyzePhotos(photos: List<PhotoItem>): PhotoAnalysis = with
     val thirtyDaysAgo = System.currentTimeMillis() / 1000 - (30 * 24 * 60 * 60)
     val oldPhotos = photos.filter { it.dateAdded < thirtyDaysAgo }
     
-    // Simple duplicate detection based on file size and name similarity
-    val duplicates = photos.groupBy { "${it.size}_${it.name.take(10)}" }
-        .filter { it.value.size > 1 }
-        .flatMap { it.value.drop(1) }
+    // Enhanced duplicate detection based on file size and content similarity
+    val duplicates = mutableListOf<PhotoItem>()
+    val sizeGroups = photos.groupBy { it.size }
+    
+    sizeGroups.forEach { (size, photosWithSameSize) ->
+        if (photosWithSameSize.size > 1 && size > 0) {
+            // Group by similar names (first 10 characters)
+            val nameGroups = photosWithSameSize.groupBy { it.name.take(10) }
+            nameGroups.forEach { (namePrefix, similarPhotos) ->
+                if (similarPhotos.size > 1) {
+                    // Add all but the first one as duplicates
+                    duplicates.addAll(similarPhotos.drop(1))
+                }
+            }
+            
+            // Also check for photos with exact same size but different names
+            if (photosWithSameSize.size > 1) {
+                val sortedByDate = photosWithSameSize.sortedBy { it.dateAdded }
+                // Consider photos with same size taken within 1 minute as potential duplicates
+                for (i in 1 until sortedByDate.size) {
+                    val timeDiff = abs(sortedByDate[i].dateAdded - sortedByDate[i-1].dateAdded)
+                    if (timeDiff <= 60) { // Within 1 minute
+                        if (!duplicates.contains(sortedByDate[i])) {
+                            duplicates.add(sortedByDate[i])
+                        }
+                    }
+                }
+            }
+        }
+    }
     
     PhotoAnalysis(
         totalPhotos = photos.size,
@@ -821,17 +858,37 @@ private suspend fun analyzePhotos(photos: List<PhotoItem>): PhotoAnalysis = with
         screenshots = screenshots,
         largeFiles = largeFiles,
         oldPhotos = oldPhotos,
-        duplicates = duplicates
+        duplicates = duplicates.distinct()
     )
 }
 
-private suspend fun deletePhotos(contentResolver: ContentResolver, uris: List<Uri>) = withContext(Dispatchers.IO) {
+private suspend fun deletePhotos(contentResolver: ContentResolver, uris: List<Uri>): String = withContext(Dispatchers.IO) {
+    var deletedCount = 0
+    var failedCount = 0
+    
     try {
         uris.forEach { uri ->
-            contentResolver.delete(uri, null, null)
-            Log.d(TAG, "Deleted photo: $uri")
+            try {
+                val deleted = contentResolver.delete(uri, null, null)
+                if (deleted > 0) {
+                    deletedCount++
+                    Log.d(TAG, "Successfully deleted photo: $uri")
+                } else {
+                    failedCount++
+                    Log.w(TAG, "Failed to delete photo: $uri")
+                }
+            } catch (e: Exception) {
+                failedCount++
+                Log.e(TAG, "Error deleting photo: $uri", e)
+            }
         }
     } catch (e: Exception) {
-        Log.e(TAG, "Error deleting photos", e)
+        Log.e(TAG, "Error during batch delete", e)
+    }
+    
+    return@withContext if (failedCount == 0) {
+        "Successfully deleted $deletedCount photos"
+    } else {
+        "Deleted $deletedCount photos, failed to delete $failedCount photos"
     }
 }
