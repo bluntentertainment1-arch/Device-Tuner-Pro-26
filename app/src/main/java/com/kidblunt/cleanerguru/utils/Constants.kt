@@ -8,7 +8,5 @@ object Constants {
     const val KEY_IS_LOGGED_IN = "is_logged_in"
     const val KEY_USER_EMAIL = "user_email"
     
-    const val WEBSITE_URL = "https://app.lastapp.ai/appurls/marketing?app_id=5380bb5c-c23c-4a7e-acbf-07ee7a412b56"
-    const val SUPPORT_URL = "https://app.lastapp.ai/appurls/support?app_id=5380bb5c-c23c-4a7e-acbf-07ee7a412b56"
     const val PRIVACY_URL = "https://bluntentertainment1-arch.github.io/Clean-Booster-Pro-26/privacy-policy.html"
 }
