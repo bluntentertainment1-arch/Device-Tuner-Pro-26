@@ -1,20 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
+<style name="Theme.CleanerGuru.Splash" parent="Theme.SplashScreen">
 
-    <style name="Theme.CleanerGuru.Splash" parent="Theme.SplashScreen">
+    <!-- MUST MATCH YOUR GLOW BASE COLOR -->
+    <item name="windowSplashScreenBackground">#000000</item>
+    <!-- or whatever base color your glow sits on -->
 
-        <!-- Match app background to make splash invisible -->
-        <item name="windowSplashScreenBackground">@color/app_background</item>
+    <!-- Remove icon so nothing flashes -->
+    <item name="windowSplashScreenAnimatedIcon">@null</item>
 
-        <!-- REMOVE animated icon -->
-        <item name="windowSplashScreenAnimatedIcon">@null</item>
+    <!-- No delay -->
+    <item name="windowSplashScreenAnimationDuration">0</item>
 
-        <!-- REMOVE animation delay -->
-        <item name="windowSplashScreenAnimationDuration">0</item>
+    <!-- Important -->
+    <item name="postSplashScreenTheme">@style/Theme.CleanerGuru</item>
 
-        <!-- Go straight to your app theme -->
-        <item name="postSplashScreenTheme">@style/Theme.CleanerGuru</item>
-
-    </style>
-
-</resources>
+</style>
