@@ -1,7 +1,7 @@
 <style name="Theme.CleanerGuru.Splash" parent="Theme.SplashScreen">
 
     <!-- MUST MATCH YOUR GLOW BASE COLOR -->
-    <item name="windowSplashScreenBackground">#0xFF0A0A0A</item>
+    <item name="windowSplashScreenBackground">#0A0A0A</item>
     <!-- or whatever base color your glow sits on -->
 
     <!-- Remove icon so nothing flashes -->
