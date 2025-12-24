@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kidblunt.cleanerguru.ui.theme.*
-import com.kidblunt.cleanerguru.data.manager.BatterySaverManager
+import com.kidblunt.cleanerguru.manager.BatterySaverManager
 import kotlinx.coroutines.delay
 
 @Composable
