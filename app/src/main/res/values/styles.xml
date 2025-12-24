@@ -1,15 +1,19 @@
-<?xml version="1.0" ?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
 
     <style name="Theme.CleanerGuru.Splash" parent="Theme.SplashScreen">
 
-        <item name="windowSplashScreenBackground">#B3C5D7</item>
+        <!-- Match app background to make splash invisible -->
+        <item name="windowSplashScreenBackground">@color/app_background</item>
 
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <!-- REMOVE animated icon -->
+        <item name="windowSplashScreenAnimatedIcon">@null</item>
 
-        <item name="windowSplashScreenAnimationDuration">1000</item>
+        <!-- REMOVE animation delay -->
+        <item name="windowSplashScreenAnimationDuration">0</item>
 
-        <item name="postSplashScreenTheme">@android:style/Theme.Material.NoActionBar</item>
+        <!-- Go straight to your app theme -->
+        <item name="postSplashScreenTheme">@style/Theme.CleanerGuru</item>
 
     </style>
 
