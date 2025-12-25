@@ -34,4 +34,49 @@
     <string name="permission_required">Permission Required</string>
     <string name="grant_permission">Grant Permission</string>
     <string name="storage_permission_rationale">Storage permission is required to scan and clean photos</string>
+    <!-- Quick Optimize -->
+<string name="quick_optimize">Quick Optimize</string>
+<string name="quick_optimize_desc">
+    Applies smart performance & battery optimization
+</string>
+
+<!-- Battery Saver -->
+<string name="battery_saver_regular">Regular Saving</string>
+<string name="battery_saver_regular_desc">
+    Balanced saving for daily use
+</string>
+
+<string name="battery_saver_ultra">Ultra Saving</string>
+<string name="battery_saver_ultra_desc">
+    Maximum battery saving (some features limited)
+</string>
+
+<!-- Performance / Gaming -->
+<string name="cpu_optimization_desc">
+    Improves background efficiency
+</string>
+
+<string name="gaming_mode_desc">
+    Boosts performance during gameplay
+</string>
+
+<!-- Device Score -->
+<string name="device_score">Device Score</string>
+<string name="device_score_info">
+    Score reflects current optimization status
+</string>
+
+<!-- Storage Cleanup Trust -->
+<string name="storage_cleanup_privacy">
+    We only scan photos. Nothing is uploaded.
+</string>
+
+<!-- Quick Optimize State -->
+<string name="basic_optimization_applied">
+    Basic optimization applied
+</string>
+
+<string name="custom_mode_active">
+    Custom mode active
+</string>
 </resources>
