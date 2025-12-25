@@ -41,12 +41,12 @@
 </string>
 
 <!-- Battery Saver -->
-<string name="battery_saver_regular">Regular Saving</string>
-<string name="battery_saver_regular_desc">
+<string name="battery_saver_power">Power Saver</string>
+<string name="battery_saver_power_desc">
     Balanced saving for daily use
 </string>
 
-<string name="battery_saver_ultra">Ultra Saving</string>
+<string name="battery_saver_ultra">Ultra Saver</string>
 <string name="battery_saver_ultra_desc">
     Maximum battery saving (some features limited)
 </string>
