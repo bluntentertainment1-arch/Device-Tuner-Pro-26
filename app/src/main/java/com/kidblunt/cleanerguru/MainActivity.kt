@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         var sharedPreferences: SharedPreferences = getSharedPreferences("prefs", Context.MODE_PRIVATE)
         var userId = sharedPreferences.getString("user_id", "")
     
-        
+        installSplashScreen()
         
         
         setContent {
