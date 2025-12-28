@@ -8,5 +8,5 @@ object Constants {
     const val KEY_IS_LOGGED_IN = "is_logged_in"
     const val KEY_USER_EMAIL = "user_email"
     
-    const val PRIVACY_URL = "https://bluntentertainment1-arch.github.io/Clean-Booster-Pro-26/privacy-policy.html"
+    const val PRIVACY_URL = "https://bluntentertainment1-arch.github.io/Device-Tuner-Pro-26/privacy-policy.html"
 }
